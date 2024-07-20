@@ -1,6 +1,9 @@
 import AppKit
-import Foundation
 import ShellOut
+
+// kitty themes to switch between
+let lightTheme = "gruvbox-light"
+let darkTheme  = "gruvbox-dark"
 
 private let kAppleInterfaceThemeChangedNotification = "AppleInterfaceThemeChangedNotification"
 
@@ -50,166 +53,53 @@ func notify(theme: Theme) {
 }
 
 func respond(theme: Theme) {
-    do {
-        // Neovim ---------------------------------------------------------------
-        let output = try shellOut(to: "nvr", arguments: ["--serverlist"])
-        let servers = output.split(whereSeparator: \.isNewline)
+    DispatchQueue.global().async {
+        print("\(Date()) kitty: sending command")
 
-        if servers.isEmpty {
-            print("\(Date()) neovim: no servers")
-        } else {
-            servers.forEach { server in
-                let server = String(server)
-
-                print("\(Date()) neovim server (\(String(server))): sending command")
-
-                let arguments = buildNvimBackgroundArguments(server: server, theme: theme)
-
-                DispatchQueue.global().async {
-                    do {
-                        try shellOut(to: "nvr", arguments: arguments)
-                    } catch {
-                        print("\(Date()) neovim server \(String(server)): command failed")
-                    }
-                }
-            }
+        let kittyArguments = buildKittyArguments(theme: theme)
+        do {
+            try shellOut(to: "/opt/homebrew/bin/kitty", arguments: kittyArguments)
+        } catch {
+            print("\(Date()) kitty: command failed")
         }
 
-        DispatchQueue.global().async {
-            print("\(Date()) neovim: updating config")
-
-            let arguments = [
-                "-E",
-                "-i",
-                // Don't create a backfup file
-                "''",
-                "s/catppuccin-[a-z]*/catppuccin-\(themeToCatppuccinTheme(theme: theme))/g",
-                "~/.config/nvim/lua/user/ui/theme.lua",
-            ]
-
-            do {
-                try shellOut(to: "sed", arguments: arguments)
-            } catch {
-                print("\(Date()) neovim: config update failed")
-            }
+        let copyArguments = buildCopyArguments(theme: theme)
+        do {
+            try shellOut(to: "cp", arguments: copyArguments)
+        } catch {
+            print("\(Date()) cp: command failed")
         }
-
-        // Kitty ----------------------------------------------------------------
-        DispatchQueue.global().async {
-            print("\(Date()) kitty: sending command")
-
-            let arguments = buildKittyArguments(theme: theme)
-
-            do {
-                try shellOut(to: "kitty", arguments: arguments)
-            } catch {
-                print("\(Date()) kitty: command failed")
-            }
-        }
-
-        // Helix ----------------------------------------------------------------
-        DispatchQueue.global().async {
-            print("\(Date()) helix: updating config")
-
-            let arguments = [
-                "-E",
-                "-i",
-                // Don't create a backfup file
-                "''",
-                "s/catppuccin_[a-z]*/catppuccin_\(themeToCatppuccinTheme(theme: theme))/g",
-                "~/.config/helix/config.toml",
-            ]
-
-            do {
-                try shellOut(to: "sed", arguments: arguments)
-            } catch {
-                print("\(Date()) helix: config update failed")
-            }
-        }
-
-        DispatchQueue.global().async {
-            print("\(Date()) helix: reloading config")
-
-            let arguments = ["-USR1", "hx"]
-
-            do {
-                try shellOut(to: "pkill", arguments: arguments)
-            } catch {
-                print("\(Date()) helix: config reload failed")
-            }
-        }
-
-        DispatchQueue.global().async {
-            // Emacs ----------------------------------------------------------------
-            DispatchQueue.global().async {
-                print("\(Date()) emacs: sending command")
-
-                let arguments = buildEmacsArguments(theme: theme)
-
-                do {
-                    try shellOut(to: "emacsclient", arguments: arguments)
-                } catch {
-                    print("\(Date()) emacs: command failed: \(error)")
-                }
-            }
-        }
-    } catch {
-        let error = error as! ShellOutError
-        print(error.message) // Prints STDERR
-        print(error.output) // Prints STDOUT
     }
-}
-
-func buildNvimBackgroundArguments(server: String, theme: Theme) -> [String] {
-    return ["--servername", server, "+'colorscheme catppuccin-\(themeToCatppuccinTheme(theme: theme))'"]
 }
 
 func buildKittyArguments(theme: Theme) -> [String] {
     return [
-        "+kitten",
-        "themes",
-        "--reload-in=all",
-        "--config-file-name",
-        "themes.conf",
-        "Catppuccin-\(themeToCatppuccinTheme(theme: theme).capitalized)",
+        "kitten",
+        "@",
+        "--to",
+        "unix:/tmp/mykitty",
+        "set-colors",
+        "--all",
+        "~/.config/kitty/themes/\(getTheme(theme: theme)).conf",
     ]
 }
 
-func buildEmacsArguments(theme: Theme) -> [String] {
+func buildCopyArguments(theme: Theme) -> [String] {
     return [
-        "--socket-name",
-        "~/.config/emacs/server/server",
-        "--eval",
-        #""(my/catppuccin-set-and-reload '\#(themeToCatppuccinTheme(theme: theme)))""#,
-        "--quiet",
-        "-no-wait",
-        "--suppress-output",
-        "-a",
-        "true",
+        "~/.config/kitty/themes/\(getTheme(theme: theme)).conf",
+        "~/.config/kitty/current-theme.conf",
     ]
 }
 
-func themeToCatppuccinTheme(theme: Theme) -> String {
+func getTheme(theme: Theme) -> String {
     return {
         switch theme {
         case .light:
-            return "latte"
+            return lightTheme
         case .dark:
-            return "mocha"
+            return darkTheme
         }
     }()
-}
-
-func toSnakeCase(sentence: String) -> String {
-    let lowercaseSentence = sentence.lowercased()
-
-    return lowercaseSentence.replacingOccurrences(of: " ", with: "_")
-}
-
-func toKebabCase(sentence: String) -> String {
-    let lowercaseSentence = sentence.lowercased()
-
-    return lowercaseSentence.replacingOccurrences(of: " ", with: "-")
 }
 
 let app = NSApplication.shared
